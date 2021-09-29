@@ -1,0 +1,6 @@
+[
+  {
+    "name":"com.azure.spring.messaging.annotation.AzureMessageListeners",
+    "allDeclaredMethods":true
+  }
+]
