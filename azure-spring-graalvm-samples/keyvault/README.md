@@ -2,45 +2,140 @@
 
 # Key Concepts
 
-This code sample demonstrates a sample of how to read and write an Azure blob with Spring Resource abstraction for Azure Storage using the [Azure Spring Boot Starter Storage](https://github.com/Azure/azure-sdk-for-java/blob/azure-spring-boot_3.6.0/sdk/spring/azure-spring-boot-starter-storage). 
+This sample illustrates how to use [Azure Spring Boot Starter Key Vault Secrets](https://github.com/Azure/azure-sdk-for-java/blob/azure-spring-boot_3.6.0/sdk/spring/azure-spring-boot-starter-keyvault-secrets/README.md) as a standard Spring application and as a GraalVM Native Image.
+
+In this sample, a secret named `spring-data-source-url` is stored into an Azure Key Vault, and a sample Spring application will use its value as a configuration property value.
 
 # Getting Started
 
-Running this sample will be charged by Azure. You can check the usage and bill at this [link](https://azure.microsoft.com/account/).
+## Store Secret
 
-## Dependencies
+We need to store secret `spring-data-source-url` into Azure Key Vault.
 
-To run this sample, two dependencies are required to be installed. They are [Azure GraalVM Support]() and [Azure Spring GraalVM Support](), where Azure GraalVM Support provides configuration for Azure SDKs and Azure Spring GraalVM Support provides some additional configurations for Azure Spring Boot Libraries.
-
-## Configure the application.properties
-
-1. Create [Azure Storage](https://docs.microsoft.com/zh-cn/azure/storage/)
-
-2. Create a container.
-
-3. Upload some Blob resource you like into the container.
-
-4. Update application.properties with information on Azure Protal.
+- Create one azure service principal by using Azure CLI or via [Azure Portal](https://docs.microsoft.com/azure/azure-resource-manager/resource-group-create-service-principal-portal). Save your service principal id and password for later use. You can use the following az cli commands to create a service principal:
 
 ```
-azure.storage.accountName=[Storage account name]
-azure.storage.accountKey=[Storage account access key]
-azure.storage.blobEndpoint=[Storage blob service endpoint URL]
+az login
+az account set --subscription <your_subscription_id>
 
-resource.blob=[azure-blob://[your-container-name]/[your-blob-name]]
+# create azure service principal by azure cli
+az ad sp create-for-rbac --name <your_azure_service_principal_name>
+# save the appId and password from output
 ```
 
-## How to run
+Save the service principal id and password contained in the output from above command.
 
-### 1. To run this sample as a standard Spring application
+- Create Azure Key Vault by using Azure CLI or via [Azure Portal](https://docs.microsoft.com/azure/azure-resource-manager/resource-group-create-service-principal-portal). You also need to grant appropriate permissions to the service principal created. You can use the following az cli commands:
+
+```
+az keyvault create --name <your_keyvault_name>            \
+                   --resource-group <your_resource_group> \
+                   --location <location>                  \
+                   --enabled-for-deployment true          \
+                   --enabled-for-disk-encryption true     \
+                   --enabled-for-template-deployment true \
+                   --sku standard
+az keyvault set-policy --name <your_keyvault_name>   \
+                       --secret-permission get list  \
+                       --spn <your_sp_id_create_in_step1>
+
+```
+
+**IMPORTANT**
+
+The property `azure.keyvault.secret-keys` specifies which exact secrets the application will load from Key Vault. If this property is not set, which means the application will have to list all the secrets in Key Vault, you have to grant both LIST and GET secret permission to the service principal. Otherwise, only GET secret permission is needed.
+
+Save the displayed Key Vault uri for later use.
+
+- Set secret in Azure Key Vault by using Azure CLI or via Azure Portal. You can use the following az cli commands:
+
+```
+az keyvault secret set --name spring-data-source-url                \
+                       --value jdbc:mysql://localhost:3306/moviedb \
+                       --vault-name <your_keyvault_name>
+az keyvault secret set --name <yourSecretPropertyName>   \
+                       --value <yourSecretPropertyVaule> \
+                       --vault-name <your_keyvault_name>
+```
+
+- If you want to use certificate authentication, upload the certificate file to App registrations or in Azure Active Directory.
+  - Upload using Azure Portal
+    - Select App registrations, then select the application name or service principal name just created.
+    - Select **Certificates & secrets**, then select **Upload Certificate**, upload your cer, pem, or crt type certificate, click **Add** button to complete the upload.
+    - If you add a new application, one more step is to grant appropriate permissions to the application created. Please see [Assign an access policy](https://docs.microsoft.com/azure/key-vault/general/assign-access-policy-portal#assign-an-access-policy). You can also use the above az keyvault set-policy command to authorize the application id to access the Key Vault.
+  - Upload using Azure Cli
+    - You can use the following az cli commands to create a service principal with the certificate, and complete the certificate configuration in one step. Please see [Certificate-based authentication](https://docs.microsoft.com/cli/azure/create-an-azure-service-principal-azure-cli#certificate-based-authentication).
+
+    ```
+    # create azure service principal with the certificate by azure cli
+    az ad sp create-for-rbac --name <your_azure_service_principal_name> --cert @/path/to/cert.pem
+    # save the appId and password from output
+    az keyvault set-policy --name <your_keyvault_name>   \
+                       --secret-permission get list  \
+                       --spn <your_sp_id_create_in_current_step>
+    ```
+
+# Example
+
+## The key-based authentication property setting
+
+Open `application.properties` file and add below properties to specify your Azure Key Vault url, Azure service principal client id and client key.
+
+```
+azure.keyvault.uri=put-your-azure-keyvault-uri-here
+azure.keyvault.client-id=put-your-azure-client-id-here
+azure.keyvault.client-key=put-your-azure-client-key-here
+azure.keyvault.tenant-id=put-your-azure-tenant-id-here
+azure.keyvault.authority-host=put-your-own-authority-host-here(fill with default value if empty)
+azure.keyvault.secret-service-version=specify secretServiceVersion value(fill with default value if empty)
+
+
+# Uncomment following property if you want to specify the secrets to load from Key Vault
+# azure.keyvault.secret-keys=yourSecretPropertyName1,yourSecretPropertyName2
+```
+
+`azure.keyvault.authority-host`
+
+The URL at which your identity provider can be reached.
+
+- If working with azure global, just left the property blank, and the value will be filled with the default value.
+
+- If working with azure stack, set the property with authority URL.
+
+`azure.keyvault.secret-service-version`
+
+The valid secret-service-version value can be found [here](https://github.com/Azure/azure-sdk-for-java/blob/azure-spring-boot_3.6.0/sdk/keyvault/azure-security-keyvault-secrets/src/main/java/com/azure/security/keyvault/secrets/SecretServiceVersion.java#L12).
+
+If property not set, the property will be filled with the latest value.
+
+## The certificate-based authentication property setting
+
+If you use certificate authentication, you only need to replace the property `azure.keyvault.client-key` with `azure.keyvault.certificate-path`, which points to your certificate.
+
+```
+azure.keyvault.uri=put-your-azure-keyvault-uri-here
+azure.keyvault.client-id=put-your-azure-client-id-here
+azure.keyvault.certificate-path=put-your-certificate-file-path-here
+azure.keyvault.certificate-password=put-your-certificate-password-here-if-exists
+azure.keyvault.tenant-id=put-your-azure-tenant-id-here
+azure.keyvault.authority-host=put-your-own-authority-host-here(fill with default value if empty)
+azure.keyvault.secret-service-version=specify secretServiceVersion value(fill with default value if empty)
+```
+
+Note: due to underlying library limitation from msal4j, when using certificates with password for authentication, please make sure the provided certificate file only contains one certificate entry. This is because msal4f supports certificate chain by loading it from the end-entity certificate automatically. So you can provide the end-entity certificate only instead of the whole chain. For more details, please refer to the related [PR](https://github.com/AzureAD/microsoft-authentication-library-for-java/pull/276).
+
+# How to run
+
+## 1. To run this sample as a standard Spring application
 
 Use the following command:
 
 ```
-mvn clean package exec:java
+cd azure-spring-boot-samples/keyvault/azure-spring-boot-sample-keyvault-secrets
+mvn spring-boot:run
 ```
 
-### 2. To compile and run this sample as a native image
+## 2. To compile and run this sample as a native image
 
 Use this command to compile:
 
@@ -51,25 +146,5 @@ mvn clean package -Pnative -DskipTests
 Once the image compilation is completed, you can find the native executable under `target` folder, which can be executed using the following command:
 
 ```
-./target/storage
-```
-
-## How to use
-
-Send the following GET request to obtain a list of your Blob resources:
-
-```
-curl -XGET http://localhost:8080/listall 
-```
-
-Send the following GET request to read the content of the Blob resource:
-
-```
-curl -XGET http://localhost:8080/readblob
-```
-
-Send the following POST request to update the content of the Blob resource:
-
-```
-curl -XPOST http://localhost:8080/updateblob\?newcontent\=test%20content  
+./target/keyvault
 ```

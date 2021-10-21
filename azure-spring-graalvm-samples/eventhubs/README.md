@@ -1,8 +1,8 @@
-# GraalVM Native Image Support Sample of Azure Spring Boot Storage Starter Library for Java
+# GraalVM Native Image Sample of Azure Key Vault Secrets Spring Boot Starter client library 
 
 # Key Concepts
 
-This code sample demonstrates a sample of how to read and write an Azure blob with Spring Resource abstraction for Azure Storage using the [Azure Spring Boot Starter Storage](https://github.com/Azure/azure-sdk-for-java/blob/azure-spring-boot_3.6.0/sdk/spring/azure-spring-boot-starter-storage). 
+This code sample demonstrates how to use Spring Integration for Azure Event Hub as a standard Spring application and as a GraalVM Native Image.
 
 # Getting Started
 
@@ -12,23 +12,32 @@ Running this sample will be charged by Azure. You can check the usage and bill a
 
 To run this sample, two dependencies are required to be installed. They are [Azure GraalVM Support]() and [Azure Spring GraalVM Support](), where Azure GraalVM Support provides configuration for Azure SDKs and Azure Spring GraalVM Support provides some additional configurations for Azure Spring Boot Libraries.
 
+## Create Azure resources
+
+1. Create [Azure Event Hubs](https://docs.microsoft.com/azure/event-hubs/). Please note `Basic` tier is unsupported. After creating the Azure Event Hub, you can create your own Consumer Group or use the default "$Default" Consumer Group.
+
+2. Create [Azure Storage](https://docs.microsoft.com/azure/storage/) for checkpoint use.
+
+3. [Optional] if you want to use service principal, please follow [create service principal from Azure CLI](https://github.com/Azure-Samples/azure-spring-boot-samples/blob/main/create-sp-using-azure-cli.md) to create one.
+
+4. [Optional] if you want to use managed identity, please follow [create managed identity](https://github.com/Azure-Samples/azure-spring-boot-samples/blob/main/create-managed-identity.md) to set up managed identity.
+
 ## Configure the application.properties
 
-1. Create [Azure Storage](https://docs.microsoft.com/zh-cn/azure/storage/)
-
-2. Create a container.
-
-3. Upload some Blob resource you like into the container.
-
-4. Update application.properties with information on Azure Protal.
+1. Update `application.yaml`. If you choose to use service principal or managed identity, update the application-sp.yaml or application-mi.yaml respectively.
 
 ```
-azure.storage.accountName=[Storage account name]
-azure.storage.accountKey=[Storage account access key]
-azure.storage.blobEndpoint=[Storage blob service endpoint URL]
-
-resource.blob=[azure-blob://[your-container-name]/[your-blob-name]]
+spring:
+  cloud:
+    azure:
+      eventhub:
+        connection-string: [eventhub-namespace-connection-string]
+        checkpoint-storage-account: [checkpoint-storage-account]
+        checkpoint-access-key: [checkpoint-access-key]
+        checkpoint-container: [checkpoint-container]
 ```
+
+2. Update event hub name and consumer group in ReceiveController and SendController.
 
 ## How to run
 
@@ -37,7 +46,7 @@ resource.blob=[azure-blob://[your-container-name]/[your-blob-name]]
 Use the following command:
 
 ```
-mvn clean package exec:java
+mvn spring-boot:run
 ```
 
 ### 2. To compile and run this sample as a native image
@@ -56,20 +65,17 @@ Once the image compilation is completed, you can find the native executable unde
 
 ## How to use
 
-Send the following GET request to obtain a list of your Blob resources:
+Send a POST request.
 
 ```
-curl -XGET http://localhost:8080/listall 
+$ curl -X POST http://localhost:8080/messages?message=hello
 ```
 
-Send the following GET request to read the content of the Blob resource:
+Verify in your app’s logs that a similar message was posted:
 
 ```
-curl -XGET http://localhost:8080/readblob
+New message received: 'hello'
+Message 'hello' successfully checkpointed
 ```
 
-Send the following POST request to update the content of the Blob resource:
-
-```
-curl -XPOST http://localhost:8080/updateblob\?newcontent\=test%20content  
-```
+Delete the resources on [Azure Portal](https://ms.portal.azure.com/) to avoid unexpected charges.
